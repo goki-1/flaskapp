@@ -1,7 +1,8 @@
 from flask import Flask, request, render_template_string
 import subprocess
 import html
-from datetime import datetime
+from datetime import datetime, timedelta
+import xml.etree.ElementTree as ET
 
 app = Flask(__name__)
 
@@ -49,55 +50,70 @@ def index():
 @app.route('/search', methods=['GET'])
 def search():
     voice_number = request.args.get('voice_number', '')
-    svn_command = ['svn', 'log', '--xml', '-r', '{2021-11-10}:HEAD', 'https://subversion.polycom.com/SVN/RepoSPIP']
+
+    # Read entries from existing XML file
+    existing_entries = read_entries_from_xml("data.xml")
+
+    # Fetch SVN entries from Jan 11, 2024, to HEAD
+    present_entries = fetch_svn_entries("2024-02-06")
+
+    # Combine existing and present entries
+    all_entries = existing_entries + present_entries
+
+    # Filter entries by voice_number
+    filtered_entries = [entry for entry in all_entries if f"VOICE-{voice_number}" in entry['msg']]
+
+    return render_template_string(HTML_TEMPLATE, entries=filtered_entries, voice_number=voice_number)
+
+def read_entries_from_xml(filename):
+    tree = ET.parse(filename)
+    root = tree.getroot()
+    entries = []
+
+    for logentry in root.findall('logentry'):
+        entry = {
+            'revision': logentry.get('revision'),
+            'author': logentry.find('author').text,
+            'date': logentry.find('date').text,
+            'msg': logentry.find('msg').text,
+            'link': f"https://svnmsp-subversion.polycom.com/viewvc/RepoSPIP?revision={logentry.get('revision')}&view=revision"
+        }
+        entries.append(entry)
+
+    return entries
+
+def fetch_svn_entries(start_date):
+    svn_command = ['svn', 'log', '--xml', '-r', f'{start_date}:HEAD', '--username','gusingh','--password','Gokit0302@', 'https://subversion.polycom.com/SVN/RepoSPIP']
     svn_result = subprocess.run(svn_command, capture_output=True, text=True, encoding='utf-8')
 
     if svn_result.returncode == 0:
         svn_output = svn_result.stdout
-        # Parse the XML output and filter the entries by voice_number
-        entries = parse_svn_output(svn_output, voice_number)
-        return render_template_string(HTML_TEMPLATE, entries=entries, voice_number=voice_number)
+        return parse_svn_output(svn_output)
     else:
-        # Handle errors
-        return "Error running SVN command"
+        return []
 
-import xml.etree.ElementTree as ET
-
-def parse_svn_output(xml_output, voice_number):
-    # Parse the XML output
+def parse_svn_output(xml_output):
     root = ET.fromstring(xml_output)
-    
-    # List to store entries
     entries = []
 
-    # Iterate through each logentry element
     for logentry in root.findall('logentry'):
         revision = logentry.get('revision')
         author = logentry.find('author').text
         date_str = logentry.find('date').text
-        
-        # Parse the date string into a datetime object
         date = datetime.strptime(date_str, '%Y-%m-%dT%H:%M:%S.%fZ')
-        
-        # Format the date as a readable string
         formatted_date = date.strftime('%Y-%m-%d %H:%M:%S')
         msg = logentry.find('msg').text
 
-        # Check if the message contains the VOICE number
-        if f"VOICE-{voice_number}" in msg:
-            # Create a dictionary for the entry
-            entry = {
-                'revision': revision,
-                'author': author,
-                'date': formatted_date,
-                'msg': msg,
-                'link': f'https://svnmsp-subversion.polycom.com/viewvc/RepoSPIP?revision={revision}&view=revision'
-            }
-            # Append the entry to the list
-            entries.append(entry)
-    
+        entry = {
+            'revision': revision,
+            'author': author,
+            'date': formatted_date,
+            'msg': msg,
+            'link': f"https://svnmsp-subversion.polycom.com/viewvc/RepoSPIP?revision={revision}&view=revision"
+        }
+        entries.append(entry)
+
     return entries
 
-
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', debug=True)
