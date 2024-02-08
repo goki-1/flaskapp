@@ -1,36 +1,31 @@
 import xml.etree.ElementTree as ET
 
-def combine_xml_files(input_files, output_file):
-    combined_entries = {}  # Using a dictionary to store unique entries based on revision number
+def check_revision_numbers(file_path):
+    # Set to store encountered revision numbers
+    encountered_revision_numbers = set()
 
-    for input_file in input_files:
-        tree = ET.parse(input_file)
-        root = tree.getroot()
+    # Parse the XML file
+    tree = ET.parse(file_path)
+    root = tree.getroot()
 
-        # Iterate through each logentry element in the current XML file
-        for logentry in root.findall('logentry'):
-            # Extract revision number
-            revision = logentry.get('revision')
-            # Check if the revision number is not already in the dictionary
-            if revision not in combined_entries:
-                # Add the logentry to the dictionary using revision number as key
-                combined_entries[revision] = logentry
-                # Append the logentry to the output XML file
-                output_root.append(logentry)
+    # Iterate through each logentry element in the XML file
+    for logentry in root.findall('logentry'):
+        # Extract the revision number
+        revision = logentry.get('revision')
+        # Add the revision number to the set
+        encountered_revision_numbers.add(int(revision))
 
-    # Create a new XML tree with the combined entries
-    combined_tree = ET.ElementTree(output_root)
-    combined_tree.write(output_file)
+    # Check if all revision numbers from 1 to 294148 are present
+    missing_revision_numbers = set(range(1, 294149)).difference(encountered_revision_numbers)
 
-# Input file names
-input_files = ['data.xml', 'data1.xml', 'data2.xml']
-# Output file name
-output_file = 'combined_data.xml'
+    if not missing_revision_numbers:
+        print("All revision numbers from 1 to 294148 are present in the file.")
+    else:
+        print("Missing revision numbers:", missing_revision_numbers)
 
-# Create the root element for the output XML file
-output_root = ET.Element("log")
+# File path of the combined XML file
+file_path = 'combined_data.xml'
 
-# Combine XML files and remove duplicates based on revision number
-combine_xml_files(input_files, output_file)
+# Check if all revision numbers from 1 to 294148 are present
+check_revision_numbers(file_path)
 
-print("Combined data written to", output_file)
