@@ -1,119 +1,36 @@
-from flask import Flask, request, render_template_string
-import subprocess
-import html
-from datetime import datetime, timedelta
 import xml.etree.ElementTree as ET
 
-app = Flask(__name__)
+def combine_xml_files(input_files, output_file):
+    combined_entries = {}  # Using a dictionary to store unique entries based on revision number
 
-# HTML template for the search form and results display
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>VOICE Number Search</title>
-    <style>
-        body { font-family: Arial, sans-serif; }
-        .entry { margin-bottom: 20px; }
-        .entry p { margin: 5px 0; }
-    </style>
-</head>
-<body>
-    <h1>Search SVN Log by VOICE Number</h1>
-    <form action="/search" method="get">
-        <label for="voice_number">Enter VOICE Number:</label>
-        <input type="text" id="voice_number" name="voice_number" required>
-        <button type="submit">Search</button>
-    </form>
-    {% if entries %}
-        <h2>Results for VOICE-{{ voice_number }}</h2>
-        {% for entry in entries %}
-            <div class='entry'>
-                <p><strong>Revision:</strong> {{ entry['revision'] }}</p>
-                <p><strong>Author:</strong> {{ entry['author'] }}</p>
-                <p><strong>Date:</strong> {{ entry['date'] }}</p>
-                <p><a href="{{ entry['link'] }}" target="_blank">Revision Link</a></p>
-                <p><strong>Message:</strong> {{ entry['msg'] }}</p>
-            </div>
-        {% endfor %}
-    {% endif %}
-</body>
-</html>
-"""
+    for input_file in input_files:
+        tree = ET.parse(input_file)
+        root = tree.getroot()
 
-@app.route('/')
-def index():
-    # Display the search form
-    return render_template_string(HTML_TEMPLATE)
+        # Iterate through each logentry element in the current XML file
+        for logentry in root.findall('logentry'):
+            # Extract revision number
+            revision = logentry.get('revision')
+            # Check if the revision number is not already in the dictionary
+            if revision not in combined_entries:
+                # Add the logentry to the dictionary using revision number as key
+                combined_entries[revision] = logentry
+                # Append the logentry to the output XML file
+                output_root.append(logentry)
 
-@app.route('/search', methods=['GET'])
-def search():
-    voice_number = request.args.get('voice_number', '')
+    # Create a new XML tree with the combined entries
+    combined_tree = ET.ElementTree(output_root)
+    combined_tree.write(output_file)
 
-    # Read entries from existing XML file
-    existing_entries = read_entries_from_xml("data.xml")
+# Input file names
+input_files = ['data.xml', 'data1.xml', 'data2.xml']
+# Output file name
+output_file = 'combined_data.xml'
 
-    # Fetch SVN entries from Jan 11, 2024, to HEAD
-    present_entries = fetch_svn_entries("2024-02-06")
+# Create the root element for the output XML file
+output_root = ET.Element("log")
 
-    # Combine existing and present entries
-    all_entries = existing_entries + present_entries
+# Combine XML files and remove duplicates based on revision number
+combine_xml_files(input_files, output_file)
 
-    # Filter entries by voice_number
-    filtered_entries = [entry for entry in all_entries if f"VOICE-{voice_number}" in entry['msg']]
-
-    return render_template_string(HTML_TEMPLATE, entries=filtered_entries, voice_number=voice_number)
-
-def read_entries_from_xml(filename):
-    tree = ET.parse(filename)
-    root = tree.getroot()
-    entries = []
-
-    for logentry in root.findall('logentry'):
-        entry = {
-            'revision': logentry.get('revision'),
-            'author': logentry.find('author').text,
-            'date': logentry.find('date').text,
-            'msg': logentry.find('msg').text,
-            'link': f"https://svnmsp-subversion.polycom.com/viewvc/RepoSPIP?revision={logentry.get('revision')}&view=revision"
-        }
-        entries.append(entry)
-
-    return entries
-
-def fetch_svn_entries(start_date):
-    svn_command = ['svn', 'log', '--xml', '-r', f'{start_date}:HEAD', '--username','gusingh','--password','Gokit0302@', 'https://subversion.polycom.com/SVN/RepoSPIP']
-    svn_result = subprocess.run(svn_command, capture_output=True, text=True, encoding='utf-8')
-
-    if svn_result.returncode == 0:
-        svn_output = svn_result.stdout
-        return parse_svn_output(svn_output)
-    else:
-        return []
-
-def parse_svn_output(xml_output):
-    root = ET.fromstring(xml_output)
-    entries = []
-
-    for logentry in root.findall('logentry'):
-        revision = logentry.get('revision')
-        author = logentry.find('author').text
-        date_str = logentry.find('date').text
-        date = datetime.strptime(date_str, '%Y-%m-%dT%H:%M:%S.%fZ')
-        formatted_date = date.strftime('%Y-%m-%d %H:%M:%S')
-        msg = logentry.find('msg').text
-
-        entry = {
-            'revision': revision,
-            'author': author,
-            'date': formatted_date,
-            'msg': msg,
-            'link': f"https://svnmsp-subversion.polycom.com/viewvc/RepoSPIP?revision={revision}&view=revision"
-        }
-        entries.append(entry)
-
-    return entries
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True)
+print("Combined data written to", output_file)
